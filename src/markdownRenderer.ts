@@ -2,6 +2,8 @@ import MarkdownIt from 'markdown-it';
 import hljs from 'highlight.js';
 import * as fs from 'fs';
 import * as path from 'path';
+import createDOMPurify, { DOMPurify } from 'dompurify';
+import { JSDOM } from 'jsdom';
 
 /**
  * Markdown渲染器
@@ -9,8 +11,13 @@ import * as path from 'path';
  */
 export class MarkdownRenderer {
     private md: MarkdownIt;
+    private purifier: DOMPurify;
 
     constructor() {
+        // 初始化 DOMPurify (Node.js 环境下需要 JSDOM)
+        const window = new JSDOM('').window;
+        this.purifier = createDOMPurify(window as any);
+
         // 初始化markdown-it实例
         this.md = new MarkdownIt({
             html: true,        // 允许HTML标签
@@ -57,6 +64,9 @@ export class MarkdownRenderer {
     public render(markdownContent: string): string {
         // 使用markdown-it渲染markdown内容
         let htmlContent = this.md.render(markdownContent);
+
+        // 使用 DOMPurify 进行安全过滤，允许常用的 HTML 标签和属性
+        htmlContent = this.purifier.sanitize(htmlContent);
 
         // 为所有链接添加 target="_blank" 与 rel="noopener noreferrer"，预览中点击可打开
         htmlContent = this.ensureLinksOpenInNewTab(htmlContent);
@@ -109,6 +119,7 @@ export class MarkdownRenderer {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="referrer" content="no-referrer">
     <title>Markdown Preview</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
     <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
@@ -179,7 +190,7 @@ export class MarkdownRenderer {
     </div>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
     <script>
-        mermaid.initialize({ startOnLoad: true, theme: 'default', securityLevel: 'loose' });
+        mermaid.initialize({ startOnLoad: true, theme: 'default', securityLevel: 'strict' });
         document.addEventListener('DOMContentLoaded', function() {
             document.querySelectorAll('pre code').forEach((block) => { hljs.highlightElement(block); });
             mermaid.run();
