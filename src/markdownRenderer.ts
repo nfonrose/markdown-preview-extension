@@ -195,7 +195,34 @@ export class MarkdownRenderer {
             document.querySelectorAll('pre code').forEach((block) => { hljs.highlightElement(block); });
             mermaid.run();
             initImageLightbox();
+            initAutoRefresh();
         });
+
+        function initAutoRefresh() {
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.get('autoRefresh') !== '1') return;
+
+            // 从路径中提取 previewId: /preview/{previewId}
+            const pathParts = window.location.pathname.split('/');
+            const previewIndex = pathParts.indexOf('preview');
+            if (previewIndex === -1 || previewIndex === pathParts.length - 1) return;
+            
+            const previewId = pathParts.slice(previewIndex + 1).join('/');
+            const eventSource = new EventSource('/stream/' + previewId);
+
+            eventSource.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                if (data.event === 'update') {
+                    // 简单的页面刷新，或者可以实现更复杂的局部更新
+                    window.location.reload();
+                }
+            };
+
+            eventSource.onerror = function() {
+                console.warn('SSE connection lost, attempting to reconnect...');
+            };
+        }
+
         function initImageLightbox() {
             var box = document.getElementById('mdp-lightbox');
             var img = document.getElementById('mdp-lightbox-img');
