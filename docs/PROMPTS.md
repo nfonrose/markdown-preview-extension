@@ -9,3 +9,8 @@ Is the XSS issue easy to fix?
 
 Ok, start by fixing the XSS issue while preserving HTML display. Introduce `DOMPurify` and use `securityLevel: 'strict'` for Mermaid. You will fix the referrer issue in a separate action, later
 
+---
+
+
+Create `-EN.md` versions of the .md files which are in Chinese
+
