@@ -7,6 +7,7 @@ import { PreviewServer } from './server';
 
 let previewServer: PreviewServer | null = null;
 let extensionContext: vscode.ExtensionContext | null = null;
+const updateDebounceMap = new Map<string, NodeJS.Timeout>();
 
 /**
  * 扩展激活时调用
@@ -31,6 +32,15 @@ export function activate(context: vscode.ExtensionContext) {
         })
     );
 
+    // 监听文档变化以便自动刷新
+    context.subscriptions.push(
+        vscode.workspace.onDidChangeTextDocument(e => {
+            if (e.document.languageId === 'markdown') {
+                handleDocumentChange(e.document);
+            }
+        })
+    );
+
     // 注册命令
     const commands = [
         vscode.commands.registerCommand('markdownPreview.previewInBrowser', previewMarkdownInBrowser),
@@ -49,8 +59,54 @@ export function activate(context: vscode.ExtensionContext) {
                 previewServer.stop();
                 previewServer = null;
             }
+            updateDebounceMap.forEach(timeout => clearTimeout(timeout));
+            updateDebounceMap.clear();
         }
     });
+}
+
+/**
+ * 处理文档变化
+ */
+function handleDocumentChange(document: vscode.TextDocument) {
+    const filePath = document.uri.fsPath;
+    
+    // 清除旧的定时器
+    if (updateDebounceMap.has(filePath)) {
+        clearTimeout(updateDebounceMap.get(filePath)!);
+    }
+
+    // 设置新的定时器（防抖 300ms）
+    const timeout = setTimeout(async () => {
+        updateDebounceMap.delete(filePath);
+        if (previewServer && previewServer.isRunning()) {
+            const semanticId = getSemanticId(document.uri);
+            if (semanticId) {
+                const renderer = new MarkdownRenderer();
+                const htmlContent = renderer.render(document.getText());
+                previewServer.registerPreview(htmlContent, filePath, semanticId);
+            }
+        }
+    }, 300);
+
+    updateDebounceMap.set(filePath, timeout);
+}
+
+/**
+ * 获取语义化 ID: workspaceName/relativePath
+ */
+function getSemanticId(uri: vscode.Uri): string | undefined {
+    const workspaceFolder = vscode.workspace.getWorkspaceFolder(uri);
+    if (!workspaceFolder) {
+        return undefined;
+    }
+
+    const workspaceName = workspaceFolder.name;
+    const relativePath = path.relative(workspaceFolder.uri.fsPath, uri.fsPath);
+    
+    // 统一使用正斜杠，并进行 URL 编码
+    const normalizedRelativePath = relativePath.split(path.sep).join('/');
+    return `${workspaceName}/${normalizedRelativePath}`;
 }
 
 /**
@@ -58,38 +114,19 @@ export function activate(context: vscode.ExtensionContext) {
  */
 async function previewMarkdownInBrowser(): Promise<void> {
     try {
-        // 获取当前活动的编辑器或选中的文件
-        let filePath: string | undefined;
-
-        // 尝试从活动编辑器获取文件路径
+        // 获取当前活动的编辑器
         const activeEditor = vscode.window.activeTextEditor;
-        if (activeEditor && activeEditor.document.languageId === 'markdown') {
-            filePath = activeEditor.document.uri.fsPath;
-        } else {
-            // 如果没有活动的markdown编辑器，尝试从资源管理器获取选中的文件
-            // 注意：VSCode API不直接支持获取资源管理器中选中的文件
-            // 所以主要依赖活动编辑器
+        if (!activeEditor || activeEditor.document.languageId !== 'markdown') {
             vscode.window.showWarningMessage('Please open a markdown file in the editor first.');
             return;
         }
 
-        if (!filePath) {
-            vscode.window.showErrorMessage('No markdown file found to preview.');
-            return;
-        }
+        const document = activeEditor.document;
+        const filePath = document.uri.fsPath;
 
-        // 检查文件是否存在
-        if (!fs.existsSync(filePath)) {
-            vscode.window.showErrorMessage(`File not found: ${filePath}`);
-            return;
-        }
-
-        // 读取markdown文件内容
-        const markdownContent = fs.readFileSync(filePath, 'utf8');
-
-        // 渲染markdown为HTML（使用内联模板，不依赖外部文件）
+        // 渲染markdown为HTML
         const renderer = new MarkdownRenderer();
-        const htmlContent = renderer.render(markdownContent);
+        const htmlContent = renderer.render(document.getText());
 
         // 确保服务器已启动
         if (!previewServer) {
@@ -97,34 +134,27 @@ async function previewMarkdownInBrowser(): Promise<void> {
         }
         const port = await previewServer.start();
 
+        // 获取语义化 ID
+        const semanticId = getSemanticId(document.uri);
+
         // 注册预览会话
-        const previewId = previewServer.registerPreview(htmlContent, filePath);
+        const previewId = previewServer.registerPreview(htmlContent, filePath, semanticId);
 
-        // 构建预览URL
-        const previewUrl = previewServer.getPreviewUrl(previewId);
+        // 构建预览URL，添加 autoRefresh=1
+        let previewUrl = previewServer.getPreviewUrl(previewId);
+        previewUrl += '?autoRefresh=1';
 
-        // 在外部浏览器中打开（使用系统命令确保在外部浏览器打开）
+        // 在外部浏览器中打开
         await openExternalBrowser(previewUrl);
     } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
-        const errorStack = error instanceof Error ? error.stack : '';
         vscode.window.showErrorMessage(`Failed to preview markdown: ${errorMessage}`);
         console.error('Preview error:', error);
-        console.error('Error stack:', errorStack);
-        
-        // 输出到输出面板以便调试
-        const outputChannel = vscode.window.createOutputChannel('Markdown Preview');
-        outputChannel.appendLine(`Error: ${errorMessage}`);
-        if (errorStack) {
-            outputChannel.appendLine(`Stack: ${errorStack}`);
-        }
-        outputChannel.show(true);
     }
 }
 
 /**
- * 使用系统默认浏览器打开 URL（各平台标准方式，无 hack）
- * 失败时回退到 vscode.env.openExternal。
+ * 使用系统默认浏览器打开 URL
  */
 function openExternalBrowser(url: string): Promise<void> {
     const fallback = (): Thenable<boolean> =>
@@ -161,10 +191,7 @@ function openExternalBrowser(url: string): Promise<void> {
 }
 
 /**
- * 各平台打开 URL 的标准命令（仅使用各 OS 官方/通用方式，无 hack）
- * - win32: start 为 cmd 内置，需通过 cmd /c 调用；第一个空串为窗口标题（start 语法要求）
- * - darwin: open 为系统命令
- * - linux/freebsd/openbsd/其他: xdg-open 为 freedesktop 标准，未安装时 spawn 失败会走 fallback
+ * 各平台打开 URL 的标准命令
  */
 function getOpenCommand(platform: string, url: string): { command: string | null; args: string[] } {
     switch (platform) {

@@ -19,12 +19,15 @@ const MIME_TYPES: Record<string, string> = {
  * 预览会话信息
  */
 export interface PreviewSession {
+    id: string;
     htmlContent: string;
     filePath: string;
     /** 文档所在目录，用于解析相对路径图片 */
     basePath: string;
     createdAt: number;
     lastAccessed: number;
+    /** SSE 客户端连接 */
+    connections: http.ServerResponse[];
 }
 
 /**
@@ -128,9 +131,36 @@ export class PreviewServer {
             return;
         }
 
+        // 处理 SSE 流：/stream/{previewId}
+        const streamMatch = pathname.match(/^\/stream\/(.+)$/);
+        if (streamMatch && req.method === 'GET') {
+            const previewId = streamMatch[1];
+            const session = this.previewSessions.get(previewId);
+
+            if (session) {
+                res.writeHead(200, {
+                    'Content-Type': 'text/event-stream',
+                    'Cache-Control': 'no-cache',
+                    'Connection': 'keep-alive'
+                });
+                // 发送初始心跳
+                res.write(':ok\n\n');
+                session.connections.push(res);
+                
+                req.on('close', () => {
+                    session.connections = session.connections.filter(c => c !== res);
+                });
+            } else {
+                res.writeHead(404);
+                res.end();
+            }
+            return;
+        }
+
         // 处理预览请求：/preview/{previewId}
-        const previewMatch = pathname.match(/^\/preview\/([a-f0-9]+)$/);
-        if (previewMatch) {
+        // 注意：这里的 previewId 可能是 hash 或者是 workspaceName/relativePath
+        const previewMatch = pathname.match(/^\/preview\/(.+)$/);
+        if (previewMatch && !pathname.includes('/asset/')) {
             const previewId = previewMatch[1];
             const session = this.previewSessions.get(previewId);
 
@@ -159,8 +189,8 @@ export class PreviewServer {
             return;
         }
 
-        // 处理相对路径图片：/preview/{previewId}/asset/{relativePath}
-        const assetMatch = pathname.match(/^\/preview\/([a-f0-9]+)\/asset\/(.+)$/);
+        // 处理相对路径资源：/preview/{previewId}/asset/{relativePath}
+        const assetMatch = pathname.match(/^\/preview\/(.+)\/asset\/(.+)$/);
         if (assetMatch && req.method === 'GET') {
             this.servePreviewAsset(assetMatch[1], assetMatch[2], res);
             return;
@@ -230,34 +260,72 @@ export class PreviewServer {
     }
 
     /**
-     * 注册预览会话
+     * 注册或更新预览会话
      * @param htmlContent 渲染后的HTML内容
      * @param filePath 原始markdown文件路径
+     * @param semanticId 可选的语义化ID (workspace/relative/path)
      * @returns 预览ID
      */
-    public registerPreview(htmlContent: string, filePath: string): string {
-        // 生成唯一预览ID（基于文件路径和时间戳的hash）
-        const hash = crypto.createHash('sha256');
-        hash.update(filePath + Date.now() + Math.random().toString());
-        const previewId = hash.digest('hex').substring(0, 16);
+    public registerPreview(htmlContent: string, filePath: string, semanticId?: string): string {
+        let previewId = semanticId;
+
+        if (!previewId) {
+            // 回退到基于 hash 的 ID
+            const hash = crypto.createHash('sha256');
+            hash.update(filePath + Date.now() + Math.random().toString());
+            previewId = hash.digest('hex').substring(0, 16);
+        }
+
+        const existingSession = this.previewSessions.get(previewId);
+        const basePath = path.dirname(filePath);
+
+        if (existingSession) {
+            existingSession.htmlContent = htmlContent;
+            existingSession.lastAccessed = Date.now();
+            existingSession.filePath = filePath;
+            existingSession.basePath = basePath;
+            // 触发更新
+            this.broadcastUpdate(existingSession);
+            return previewId;
+        }
 
         // 检查会话数量限制
         if (this.previewSessions.size >= this.maxSessions) {
             this.cleanupOldestSession();
         }
 
-        const basePath = path.dirname(filePath);
         const session: PreviewSession = {
+            id: previewId,
             htmlContent,
             filePath,
             basePath,
             createdAt: Date.now(),
-            lastAccessed: Date.now()
+            lastAccessed: Date.now(),
+            connections: []
         };
 
         this.previewSessions.set(previewId, session);
 
         return previewId;
+    }
+
+    /**
+     * 向所有连接的客户端广播更新
+     */
+    private broadcastUpdate(session: PreviewSession): void {
+        if (session.connections.length === 0) return;
+
+        console.log(`Broadcasting update for session: ${session.id}`);
+        const data = JSON.stringify({
+            event: 'update',
+            // 注意：因为 assets 路径在 client 端需要重写，我们直接通过 SSE 通知 client 刷新
+            // 或者发送新的 htmlContent（这里选择发送信号，让 client 自己决定是否局部更新或刷新）
+            // 为了简单起见，我们先发送刷新信号
+        });
+
+        session.connections.forEach(res => {
+            res.write(`data: ${data}\n\n`);
+        });
     }
 
     /**
@@ -291,6 +359,10 @@ export class PreviewServer {
         });
 
         expiredIds.forEach(id => {
+            const session = this.previewSessions.get(id);
+            if (session) {
+                session.connections.forEach(c => c.end());
+            }
             this.previewSessions.delete(id);
         });
 
@@ -314,6 +386,10 @@ export class PreviewServer {
         });
 
         if (oldestId) {
+            const session = this.previewSessions.get(oldestId);
+            if (session) {
+                session.connections.forEach(c => c.end());
+            }
             this.previewSessions.delete(oldestId);
             console.log(`Cleaned up oldest preview session: ${oldestId}`);
         }
@@ -335,7 +411,10 @@ export class PreviewServer {
             this.server = null;
         }
 
-        // 清理所有会话
+        // 关闭所有连接并清理所有会话
+        this.previewSessions.forEach(session => {
+            session.connections.forEach(c => c.end());
+        });
         this.previewSessions.clear();
     }
 
