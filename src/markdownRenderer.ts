@@ -121,40 +121,73 @@ export class MarkdownRenderer {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="referrer" content="no-referrer">
     <title>Markdown Preview</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css" id="hljs-light">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css" id="hljs-dark" disabled>
     <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
     <style>
+        :root {
+            --bg-color: #fff;
+            --text-color: #333;
+            --h-border-color: #eaecef;
+            --blockquote-text: #6a737d;
+            --blockquote-border: #dfe2e5;
+            --code-bg: rgba(27, 31, 35, 0.05);
+            --pre-bg: #f6f8fa;
+            --table-border: #dfe2e5;
+            --table-header-bg: #f6f8fa;
+            --table-even-row: #f6f8fa;
+            --link-color: #0366d6;
+            --hr-bg: #e1e4e8;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg-color: #0d1117;
+                --text-color: #c9d1d9;
+                --h-border-color: #30363d;
+                --blockquote-text: #8b949e;
+                --blockquote-border: #30363d;
+                --code-bg: rgba(110, 118, 129, 0.4);
+                --pre-bg: #161b22;
+                --table-border: #30363d;
+                --table-header-bg: #161b22;
+                --table-even-row: #0d1117;
+                --link-color: #58a6ff;
+                --hr-bg: #30363d;
+            }
+        }
+
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
             line-height: 1.6;
-            color: #333;
-            background-color: #fff;
+            color: var(--text-color);
+            background-color: var(--bg-color);
             padding: 20px;
             max-width: 1200px;
             margin: 0 auto;
         }
         h1, h2, h3, h4, h5, h6 { margin-top: 24px; margin-bottom: 16px; font-weight: 600; line-height: 1.25; }
-        h1 { font-size: 2em; border-bottom: 1px solid #eaecef; padding-bottom: 0.3em; }
-        h2 { font-size: 1.5em; border-bottom: 1px solid #eaecef; padding-bottom: 0.3em; }
+        h1 { font-size: 2em; border-bottom: 1px solid var(--h-border-color); padding-bottom: 0.3em; }
+        h2 { font-size: 1.5em; border-bottom: 1px solid var(--h-border-color); padding-bottom: 0.3em; }
         h3 { font-size: 1.25em; }
         p { margin-bottom: 16px; }
         ul, ol { margin-bottom: 16px; padding-left: 2em; }
-        blockquote { padding: 0 1em; color: #6a737d; border-left: 0.25em solid #dfe2e5; margin-bottom: 16px; }
-        code { padding: 0.2em 0.4em; margin: 0; font-size: 85%; background-color: rgba(27, 31, 35, 0.05); border-radius: 3px; font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; }
-        pre { padding: 16px; overflow: auto; font-size: 85%; line-height: 1.45; background-color: #f6f8fa; border-radius: 6px; margin-bottom: 16px; }
+        blockquote { padding: 0 1em; color: var(--blockquote-text); border-left: 0.25em solid var(--blockquote-border); margin-bottom: 16px; }
+        code { padding: 0.2em 0.4em; margin: 0; font-size: 85%; background-color: var(--code-bg); border-radius: 3px; font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; }
+        pre { padding: 16px; overflow: auto; font-size: 85%; line-height: 1.45; background-color: var(--pre-bg); border-radius: 6px; margin-bottom: 16px; }
         pre code { display: inline; padding: 0; margin: 0; overflow: visible; line-height: inherit; word-wrap: normal; background-color: transparent; border: 0; }
         table { border-collapse: collapse; border-spacing: 0; width: 100%; margin-bottom: 16px; display: block; overflow-x: auto; }
-        table th, table td { padding: 6px 13px; border: 1px solid #dfe2e5; }
-        table th { font-weight: 600; background-color: #f6f8fa; }
-        table tr:nth-child(2n) { background-color: #f6f8fa; }
-        a { color: #0366d6; text-decoration: none; }
+        table th, table td { padding: 6px 13px; border: 1px solid var(--table-border); }
+        table th { font-weight: 600; background-color: var(--table-header-bg); }
+        table tr:nth-child(2n) { background-color: var(--table-even-row); }
+        a { color: var(--link-color); text-decoration: none; }
         a:hover { text-decoration: underline; }
         img { max-width: 100%; height: auto; margin-bottom: 16px; }
         .mdp-image-wrap { display: inline-block; cursor: pointer; margin-bottom: 16px; border-radius: 6px; outline: none; }
-        .mdp-image-wrap:focus { box-shadow: 0 0 0 2px #0366d6; }
+        .mdp-image-wrap:focus { box-shadow: 0 0 0 2px var(--link-color); }
         .mdp-image-wrap img { margin-bottom: 0; vertical-align: middle; }
-        hr { height: 0.25em; padding: 0; margin: 24px 0; background-color: #e1e4e8; border: 0; }
+        hr { height: 0.25em; padding: 0; margin: 24px 0; background-color: var(--hr-bg); border: 0; }
         .mermaid { text-align: center; margin: 20px 0; }
         /* 图片弹窗 Lightbox */
         .mdp-lightbox { display: none; position: fixed; inset: 0; z-index: 10000; background: rgba(0,0,0,0.85); align-items: center; justify-content: center; }
@@ -168,7 +201,7 @@ export class MarkdownRenderer {
         .mdp-lightbox__btn:hover { background: rgba(255,255,255,0.35); }
         .mdp-lightbox__btn-close { position: absolute; top: 16px; right: 16px; bottom: auto; left: auto; transform: none; }
         .mdp-lightbox__scale-label { color: rgba(255,255,255,0.9); font-size: 13px; min-width: 52px; text-align: center; }
-        .hljs { display: block; overflow-x: auto; padding: 16px; background: #f6f8fa; }
+        .hljs { display: block; overflow-x: auto; padding: 16px; background: var(--pre-bg); }
     </style>
 </head>
 <body>
@@ -190,7 +223,20 @@ export class MarkdownRenderer {
     </div>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
     <script>
-        mermaid.initialize({ startOnLoad: true, theme: 'default', securityLevel: 'strict' });
+        const isDarkMode = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+        
+        // 设置 hljs 主题
+        if (isDarkMode) {
+            document.getElementById('hljs-light').disabled = true;
+            document.getElementById('hljs-dark').disabled = false;
+        }
+
+        mermaid.initialize({ 
+            startOnLoad: true, 
+            theme: isDarkMode ? 'dark' : 'default', 
+            securityLevel: 'strict' 
+        });
+
         document.addEventListener('DOMContentLoaded', function() {
             document.querySelectorAll('pre code').forEach((block) => { hljs.highlightElement(block); });
             mermaid.run();
