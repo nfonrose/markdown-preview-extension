@@ -54,6 +54,15 @@ export class MarkdownRenderer {
                 return `<pre class="hljs"><code>${this.md.utils.escapeHtml(str)}</code></pre>`;
             }
         });
+
+        // 注入行号 (data-line)，用于同步滚动
+        this.md.core.ruler.push('source_map', (state) => {
+            state.tokens.forEach(token => {
+                if (token.map && token.level === 0) {
+                    token.attrSet('data-line', token.map[0].toString());
+                }
+            });
+        });
     }
 
     /**
@@ -259,14 +268,33 @@ export class MarkdownRenderer {
             eventSource.onmessage = function(event) {
                 const data = JSON.parse(event.data);
                 if (data.event === 'update') {
-                    // 简单的页面刷新，或者可以实现更复杂的局部更新
                     window.location.reload();
+                } else if (data.event === 'scroll') {
+                    scrollToLine(data.line);
                 }
             };
 
             eventSource.onerror = function() {
                 console.warn('SSE connection lost, attempting to reconnect...');
             };
+        }
+
+        function scrollToLine(line) {
+            const elements = document.querySelectorAll('[data-line]');
+            let targetElement = null;
+            let closestLine = -1;
+
+            for (const el of elements) {
+                const elLine = parseInt(el.getAttribute('data-line'), 10);
+                if (elLine <= line && elLine > closestLine) {
+                    closestLine = elLine;
+                    targetElement = el;
+                }
+            }
+
+            if (targetElement) {
+                targetElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
         }
 
         function initImageLightbox() {

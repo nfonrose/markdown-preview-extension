@@ -31,3 +31,7 @@ Do not generate any code yet
 ---
 
 Go ahead. Implement this with `Option B: Server-Sent Events (SSE)`
+
+---
+
+I want to auto-scroll the HTML view in the browser when the user scrolls the .md file in VSCode. Create a `docs/tech/review/2026-04-29-feature-auto-scroll.md` document that studies this feature request from a technical point of view.

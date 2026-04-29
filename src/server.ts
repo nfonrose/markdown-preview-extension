@@ -317,10 +317,24 @@ export class PreviewServer {
 
         console.log(`Broadcasting update for session: ${session.id}`);
         const data = JSON.stringify({
-            event: 'update',
-            // 注意：因为 assets 路径在 client 端需要重写，我们直接通过 SSE 通知 client 刷新
-            // 或者发送新的 htmlContent（这里选择发送信号，让 client 自己决定是否局部更新或刷新）
-            // 为了简单起见，我们先发送刷新信号
+            event: 'update'
+        });
+
+        session.connections.forEach(res => {
+            res.write(`data: ${data}\n\n`);
+        });
+    }
+
+    /**
+     * 向所有连接的客户端广播滚动位置
+     */
+    public broadcastScroll(previewId: string, line: number): void {
+        const session = this.previewSessions.get(previewId);
+        if (!session || session.connections.length === 0) return;
+
+        const data = JSON.stringify({
+            event: 'scroll',
+            line: line
         });
 
         session.connections.forEach(res => {

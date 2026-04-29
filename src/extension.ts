@@ -8,6 +8,7 @@ import { PreviewServer } from './server';
 let previewServer: PreviewServer | null = null;
 let extensionContext: vscode.ExtensionContext | null = null;
 const updateDebounceMap = new Map<string, NodeJS.Timeout>();
+const scrollThrottleMap = new Map<string, NodeJS.Timeout>();
 
 /**
  * 扩展激活时调用
@@ -41,6 +42,15 @@ export function activate(context: vscode.ExtensionContext) {
         })
     );
 
+    // 监听编辑器滚动以便同步滚动
+    context.subscriptions.push(
+        vscode.window.onDidChangeTextEditorVisibleRanges(e => {
+            if (e.textEditor.document.languageId === 'markdown') {
+                handleEditorScroll(e.textEditor);
+            }
+        })
+    );
+
     // 注册命令
     const commands = [
         vscode.commands.registerCommand('markdownPreview.previewInBrowser', previewMarkdownInBrowser),
@@ -61,6 +71,8 @@ export function activate(context: vscode.ExtensionContext) {
             }
             updateDebounceMap.forEach(timeout => clearTimeout(timeout));
             updateDebounceMap.clear();
+            scrollThrottleMap.forEach(timeout => clearTimeout(timeout));
+            scrollThrottleMap.clear();
         }
     });
 }
@@ -90,6 +102,31 @@ function handleDocumentChange(document: vscode.TextDocument) {
     }, 300);
 
     updateDebounceMap.set(filePath, timeout);
+}
+
+/**
+ * 处理编辑器滚动
+ */
+function handleEditorScroll(editor: vscode.TextEditor) {
+    const filePath = editor.document.uri.fsPath;
+    
+    // 节流处理 (50ms)
+    if (scrollThrottleMap.has(filePath)) {
+        return;
+    }
+
+    const timeout = setTimeout(() => {
+        scrollThrottleMap.delete(filePath);
+        if (previewServer && previewServer.isRunning()) {
+            const semanticId = getSemanticId(editor.document.uri);
+            if (semanticId) {
+                const topVisibleLine = editor.visibleRanges[0].start.line;
+                previewServer.broadcastScroll(semanticId, topVisibleLine);
+            }
+        }
+    }, 50);
+
+    scrollThrottleMap.set(filePath, timeout);
 }
 
 /**
